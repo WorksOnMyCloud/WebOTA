@@ -1,5 +1,6 @@
 #include "WebOTA.h"
-#include "WebOTA-html.h"
+#include "WebOTA-up-html.h"
+#include "WebOTA-ota-html.h"
 
 #ifdef __DEBUG__OTA__
 #define DBG_OTA(...) Serial.printf(__VA_ARGS__)
@@ -21,7 +22,67 @@ WebOTA_t::WebOTA_t() :
   onReboot_cb(nullptr)
 {}
 
-void WebOTA_t::enable(AsyncWebServer *server) {
+void WebOTA_t::GetFileUpload(AsyncWebServerRequest *rq) {
+  DBG_OTA("[UPLOAD] GET onRequest\n");
+  rq->send(200, "text/html", uploadHTML);
+}
+
+void WebOTA_t::PostFileUpload(AsyncWebServerRequest *rq) {
+  DBG_OTA("[UPLOAD] POST onRequest\n");
+
+  if (rq->_tempObject) {
+    WebOTA_t *afu = static_cast<WebOTA_t *>(rq->_tempObject);
+    rq->onDisconnect([&](){
+      if (afu->onReboot_cb) {
+        DBG_OTA("[UPLOAD] onReboot\n");
+        afu->onReboot_cb();
+      }
+      afu->restart();
+    });
+  }
+
+  AsyncWebServerResponse *resp = rq->beginResponse(200, "text/plain", "OK\n");
+  resp->addHeader("Connection", "close");
+  rq->send(resp);
+}
+
+void WebOTA_t::handleFileUpload(AsyncWebServerRequest *rq,
+                                const String& filename,
+                                size_t index,
+                                uint8_t *data,
+                                size_t len,
+                                bool final) {
+
+  if (!rq->_tempObject)
+    return;
+
+  WebOTA_t *afu = static_cast<WebOTA_t *>(rq->_tempObject);
+
+  if (!afu->_filesystem)
+    return;
+
+  if (!index) {
+    String fn = filename;
+    if (!fn.startsWith("/")) {
+      fn = "/" + fn;
+    }
+    rq->_tempFile = afu->_filesystem->open(fn, "w");
+  }
+
+  if (rq->_tempFile) {
+    rq->_tempFile.write(data, len);
+  }
+
+  if (final) {
+    if (rq->_tempFile) {
+      rq->_tempFile.close();
+    }
+  }
+}
+
+void WebOTA_t::enable(AsyncWebServer *server, fs::FS* fsptr) {
+
+  _filesystem = fsptr;
 
   //server->onNotFound([](AsyncWebServerRequest *rq){rq->send(404);});
   server->on("/reboot", HTTP_GET,
@@ -29,7 +90,7 @@ void WebOTA_t::enable(AsyncWebServer *server) {
       rq->onDisconnect([&](){
         if (onReboot_cb) {
           DBG_OTA("[OTA] onReboot\n");
-          onReboot_cb(); 
+          onReboot_cb();
         }
         restart();
       });
@@ -39,11 +100,26 @@ void WebOTA_t::enable(AsyncWebServer *server) {
     }
   );
 
+  if (_filesystem) {
+    server->on(WEB_UPLOAD_WEB_PATH, HTTP_GET, GetFileUpload);
+    server->on(WEB_UPLOAD_WEB_PATH, HTTP_POST,
+               PostFileUpload,
+               [&](AsyncWebServerRequest *rq, String filename,
+                   size_t index, uint8_t *data,
+                   size_t len, bool last) {
+                 //typename decltype(this)::force_compiler_error error;
+                 if (!index)
+                   rq->_tempObject = this;
+                 handleFileUpload(rq, filename, index, data, len, last);
+               }
+              );
+  }
+
   server->on(WEB_OTA_WEB_PATH, HTTP_GET,
     /* onRequest */
     [&](AsyncWebServerRequest *rq) {
       DBG_OTA("[OTA] GET onRequest\n");
-      rq->send(200, "text/html", indexHTML);
+      rq->send(200, "text/html", otaHTML);
     }
   );
 
@@ -73,6 +149,7 @@ void WebOTA_t::enable(AsyncWebServer *server) {
       }
       rq->send(resp);
     },
+
     /* onUpload */
     [&](
       AsyncWebServerRequest *rq,
@@ -96,7 +173,6 @@ void WebOTA_t::enable(AsyncWebServer *server) {
             }
           }
 
-          #if defined(ESP32)
           if (!Update.begin(UPDATE_SIZE_UNKNOWN)) {
             DBG_OTA("[OTA] fail begin: %s\n", Update.errorString());
             if (onError_cb) { onError_cb(Update.getError(), Update.errorString()); }
@@ -104,7 +180,6 @@ void WebOTA_t::enable(AsyncWebServer *server) {
             Update.end();
             return rq->send(400, "text/plain", "OTA: FAIL begin\n");
           }
-          #endif
 
           if (onStart_cb) { onStart_cb(); }
         }
@@ -125,7 +200,7 @@ void WebOTA_t::enable(AsyncWebServer *server) {
 
         if (final) {
           _partition = Update.size();
-          _firmware  = Update.progress();  
+          _firmware  = Update.progress();
           if (Update.end(true)) {
             DBG_OTA("[OTA] End: %u bytes\n", index+len);
             if (onEnd_cb) { onEnd_cb(); }

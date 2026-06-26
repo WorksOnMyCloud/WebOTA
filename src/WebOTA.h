@@ -10,7 +10,7 @@
   class WebOTA_t {
     public:
       WebOTA_t();
-      void enable(AsyncWebServer *server);
+      void enable(AsyncWebServer *server, fs::FS* fsptr = nullptr);
       void onStart(void (*fn)(void)) {
         onStart_cb = fn;
       }
@@ -34,6 +34,13 @@
       uint32_t ESP_getChipId(void);
 
     private:
+      static void GetFileUpload(AsyncWebServerRequest *rq);
+      static void PostFileUpload(AsyncWebServerRequest *rq);
+      static void handleFileUpload(AsyncWebServerRequest *rq, const String& filename,
+                                   size_t index, uint8_t *data, size_t len, bool final);
+
+      fs::FS* _filesystem = nullptr;
+
       size_t _firmware;
       size_t _partition;
       void (*onStart_cb)(void);
@@ -53,6 +60,14 @@
 
   #ifndef WEB_OTA_TITLE
   #define WEB_OTA_TITLE "Web OTA Update"
+  #endif
+
+  #ifndef WEB_UPLOAD_WEB_PATH
+  #define WEB_UPLOAD_WEB_PATH "/upload"
+  #endif
+
+  #ifndef WEB_UPLOAD_TITLE
+  #define WEB_UPLOAD_TITLE "Web Upload"
   #endif
 
 #endif

@@ -1,10 +1,10 @@
 
-const char indexHTML[] PROGMEM =
+const char uploadHTML[] PROGMEM =
 "<!DOCTYPE html>"
 "<head>"
 "<meta charset='UTF-8'>"
 "<meta  name='viewport' content='width=device-width,initial-scale=1,user-scalable=yes'/>"
-"<title>" WEB_OTA_TITLE "</title>"
+"<title>" WEB_UPLOAD_TITLE "</title>"
 "</head>"
 
 "<body style='font-family: Verdana,sans-serif; font-size: 14px; background-color: #060606; color: #fff;'>"
